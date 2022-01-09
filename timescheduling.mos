@@ -1,0 +1,119 @@
+model deneme
+uses "mmxprs"
+
+!The model for curriculum-based course timetable generation, which uses integer programming to solve the problem.
+
+declarations
+    number_of_courses = 30
+    number_of_rooms = 6
+    number_of_days = 5 
+    number_of_slots_per_day = 6 
+    number_of_teachers = 24
+    number_of_curricula = 14
+    number_of_unavaliability_constraints = 53
+    
+    days= 1..number_of_days
+    slots= 1..number_of_slots_per_day
+    un_constraints= 1..number_of_unavaliability_constraints
+    
+    course_set: set of string
+    teacher_set: set of string
+    rooms: set of string
+    curricula: set of string
+    
+    course_teacher:dynamic array(course_set) of string
+    course_hours:dynamic array(course_set) of integer
+    course_mindays: dynamic array(course_set) of integer
+    course_enroll: dynamic array(course_set) of integer
+    
+    rooms_capacity: dynamic array(rooms)of integer
+    curriculum_courses: dynamic array(curricula) of set of string
+    unavailability_course: dynamic array(un_constraints) of string
+    unavailability_days: dynamic array(un_constraints) of integer
+    unavailability_slots: dynamic array(un_constraints) of integer
+    
+!Variables
+    x: array(days,slots,rooms,course_set) of mpvar
+    y: array(days,slots,rooms,course_set) of mpvar
+    w: array(days,course_set) of mpvar
+    v: array(course_set) of mpvar
+
+end-declarations
+
+ initializations from "ts.dat"
+  course_set teacher_set
+  [course_teacher,course_hours,course_mindays,course_enroll] as "COURSE_DATA"
+  rooms curricula 
+  rooms_capacity
+  curriculum_courses
+  [unavailability_course,unavailability_days,unavailability_slots] as "unavailability"
+  end-initializations
+  
+    !Objective
+    total_penalty := (sum(d in days, s in slots, r in rooms, c in course_set) y(d,s,r,c)) + (sum(c in course_set)5*v(c))
+
+    !binary
+  forall (d in days, s in slots, r in rooms, c in course_set) do
+  x(d,s,r,c) is_binary
+  end-do
+  
+  forall (d in days, s in slots, r in rooms, c in course_set) do
+  y(d,s,r,c) is_integer
+  end-do
+  
+  forall (d in days, c in course_set) do
+  w(d,c) is_binary
+  end-do
+  
+  forall (c in course_set) do
+  v(c) is_integer
+  end-do
+
+  ! constraints
+ 
+!No teacher can teach two or more classes in the same period..
+  forall (d in days, s in slots, t in teacher_set) do
+  sum(c in course_set, r in rooms|course_teacher(c)=t)x(d,s,r,c) <=1
+  end-do
+ 
+!No room is occupied by two or more classes in the same period.
+  forall (d in days, s in slots, r in rooms) do
+  sum(c in course_set)x(d,s,r,c) <=1
+  end-do
+ 
+!No course in the same curriculum happens in the same period.
+  forall (d in days, s in slots, q in curricula) do
+  sum(c in course_set, r in rooms|c in curriculum_courses(q)) x(d,s,r,c) <=1
+  end-do
+ 
+!Unavailability constraints
+  forall (u in un_constraints) do
+  sum(r in rooms) x(unavailability_days(u)+1,unavailability_slots(u)+1,r,unavailability_course(u)) =0
+  end-do
+ 
+!If the expected number of the students does not fit into an assigned room, ONE penalty point per student over capacity will be incurred. 
+  forall (d in days, s in slots, r in rooms, c in course_set) do
+  x(d,s,r,c)*(course_enroll(c)-rooms_capacity(r)) <= y(d,s,r,c)
+  end-do
+  
+!If the spread of courses exceeds the minimum number of days required, 5 penalty points per day below minimum will be incurred.
+  forall (c in course_set) do
+  sum(d in days, s in slots, r in rooms) x(d,s,r,c) =course_hours(c)
+  end-do
+  
+  forall (c in course_set, d in days) do
+  sum(s in slots, r in rooms) x(d,s,r,c) >=w(d,c)
+  sum(s in slots, r in rooms) x(d,s,r,c) <=36*w(d,c)
+  end-do
+  
+  forall (c in course_set) do
+  course_mindays(c)-sum(d in days) w(d,c) <= v(c)
+  end-do
+  
+  !Objective:
+  minimise(total_penalty)
+  
+ writeln("Begin running model")
+  writeln("Your penalty is ",getobjval,"!")
+  writeln("End running model")
+end-model
